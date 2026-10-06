@@ -30,7 +30,10 @@ BOOK_HASHES = [lambda r: (r + 1) % 5, lambda r: (3 * r + 1) % 5]
 
 def jaccard(a, b):
     """|a and b| / |a or b|. Empty union is 0, not an error."""
-    raise NotImplementedError("jaccard similarity")
+    union = a | b
+    if not union:
+        return 0
+    return len(a & b) / len(union)
 
 
 def minhash_signatures(columns, hashes, n_rows):
@@ -48,7 +51,22 @@ def minhash_signatures(columns, hashes, n_rows):
     written something correct that does not survive a dataset that does not fit
     in memory, and not fitting in memory is what this course is about.
     """
-    raise NotImplementedError("signature matrix")
+    n_cols = len(columns)
+    n_hashes = len(hashes)
+    signatures = [[float("inf")] * n_hashes for _ in range(n_cols)]
+
+    for r in range(n_rows):
+        hash_values = [h(r) for h in hashes]
+
+        for c in range(n_cols):
+            if r in columns[c]:
+                for h_idx in range(n_hashes):
+                    signatures[c][h_idx] = min(
+                        signatures[c][h_idx],
+                        hash_values[h_idx]
+                    )
+
+    return signatures
 
 
 def lsh_candidates(signatures, bands):
@@ -57,10 +75,47 @@ def lsh_candidates(signatures, bands):
     Two columns are candidates if they land in the same bucket for **at least
     one** band. Return {(i, j), ...} with i < j.
 
-    The signature length must divide evenly by `bands`, or you have to decide
-    what to do with the remainder. Say what you decided.
+    If the signature length does not divide evenly by `bands`, the remainder
+    rows are placed in the final band.
     """
-    raise NotImplementedError("LSH candidate pairs")
+    if not signatures:
+        return set()
+
+    sig_len = len(signatures[0])
+
+    if bands <= 0:
+        raise ValueError("bands must be positive")
+    if bands > sig_len:
+        raise ValueError("bands cannot exceed signature length")
+
+    rows_per_band = sig_len // bands
+    remainder = sig_len % bands
+
+    candidates = set()
+    start = 0
+
+    for band in range(bands):
+        band_size = rows_per_band
+        if band == bands - 1:
+            band_size += remainder
+
+        end = start + band_size
+        buckets = {}
+
+        for i, signature in enumerate(signatures):
+            key = tuple(signature[start:end])
+            buckets.setdefault(key, []).append(i)
+
+        for bucket in buckets.values():
+            for i in range(len(bucket)):
+                for j in range(i + 1, len(bucket)):
+                    a = bucket[i]
+                    b = bucket[j]
+                    candidates.add((a, b) if a < b else (b, a))
+
+        start = end
+
+    return candidates
 
 
 # ------------------------------------------------------------------- harness
