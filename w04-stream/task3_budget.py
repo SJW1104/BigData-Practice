@@ -29,8 +29,12 @@ class NaiveFilter:
         self.bits = bytearray(n_bits)
 
     def _index(self, item):
-        d = hashlib.blake2b(str(item).encode(), digest_size=8,
-                            key=str(self.seed).encode()).digest()
+        d = hashlib.blake2b(
+            str(item).encode(),
+            digest_size=8,
+            key=str(self.seed).encode()
+        ).digest()
+
         return int.from_bytes(d, "big") % self.n_bits
 
     def add(self, item):
@@ -44,34 +48,75 @@ class NaiveFilter:
 
 
 class YourFilter:
-    """Your filter.
+    """Bloom filter using the same bit budget with near-optimal hashing.
 
-        __init__(n_bits, seed=246)
-        add(item)
-        item in filter  ->  bool
-        memory_bits()   ->  how many bits you are using
+    For the harness:
+        m = 80,000 bits
+        n ≈ 8,000 inserted items
 
-    `memory_bits()` must not exceed the `n_bits` you were given. The harness
-    checks. Counting only some of your memory is not an optimisation.
+    The optimal number of Bloom-filter hashes is approximately
 
-    §4.4.2 gives the false-positive rate of a filter with m bits, k hashes and
-    n items inserted. There is a k that minimises it, and it depends on m/n.
-    The harness tells you n before you start, so you have no excuse for guessing.
+        k = (m / n) ln(2)
 
-    Then there is a second question, which is worth more: the harness inserts
-    a **known** number of items, but a real stream does not tell you n in
-    advance. What would you do then? You do not have to implement it - but
-    observation.md asks.
+    which is about 6.93, so k = 7 is used.
     """
 
     def __init__(self, n_bits, seed=246):
-        raise NotImplementedError("write your filter")
+        if n_bits <= 0:
+            raise ValueError("n_bits must be positive")
+
+        self.n_bits = n_bits
+        self.seed = seed
+
+        # Optimal for the harness's m/n ratio.
+        self.k = 7
+
+        # Store actual bits compactly:
+        # 8 filter bits per byte.
+        self.bits = bytearray((n_bits + 7) // 8)
+
+    def _positions(self, item):
+        """Generate k Bloom-filter positions using double hashing."""
+        data = str(item).encode("utf-8")
+
+        digest = hashlib.blake2b(
+            data,
+            digest_size=16,
+            key=str(self.seed).encode()
+        ).digest()
+
+        h1 = int.from_bytes(digest[:8], "big")
+        h2 = int.from_bytes(digest[8:], "big")
+
+        # Avoid a zero second step.
+        if h2 == 0:
+            h2 = 1
+
+        for i in range(self.k):
+            yield (h1 + i * h2) % self.n_bits
 
     def add(self, item):
-        raise NotImplementedError
+        """Set all k bit positions for an inserted item."""
+        for pos in self._positions(item):
+            byte_index = pos // 8
+            bit_index = pos % 8
+
+            self.bits[byte_index] |= 1 << bit_index
 
     def __contains__(self, item):
-        raise NotImplementedError
+        """An item is possibly present only if all k bits are set."""
+        for pos in self._positions(item):
+            byte_index = pos // 8
+            bit_index = pos % 8
+
+            if not (
+                self.bits[byte_index]
+                & (1 << bit_index)
+            ):
+                return False
+
+        return True
 
     def memory_bits(self):
-        raise NotImplementedError
+        """Report the fixed bit budget used by the filter."""
+        return self.n_bits
