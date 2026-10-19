@@ -62,34 +62,95 @@ class DenseMatrix:
 
 
 class YourPageRank:
-    """Your PageRank.
+    """Sparse PageRank using the graph's adjacency-list representation.
 
         __init__(beta=0.85, tol=1e-10, max_iter=100)
         run(graph) -> {node: rank}
-        memory_floats() -> the largest number of floats you held at once
+        memory_floats() -> the largest number of floats held at once
 
-    Same ranks, to within 1e-9 per node. Far less memory.
-
-    `graph` is {node: [out-neighbours]}. Note what that already is: an adjacency
-    list, which is the sparse representation. The dense version throws that
-    structure away and then pays to get it back.
-
-    Two things to be careful about, and they are the same two as Task 1:
-
-      * dead ends, whose rank has to go somewhere
-      * the teleport term, which touches every node and is therefore the one
-        part that looks like it needs a dense operation - it does not, and
-        working out why is the point of §5.2.3
-
-    `memory_floats()` is on your honour and the harness reads it. Count the
-    numbers you actually hold at once.
+    Instead of materialising an n x n transition matrix, this implementation
+    keeps only the current and next rank vectors and follows the edges that
+    actually exist.
     """
 
     def __init__(self, beta=0.85, tol=1e-10, max_iter=100):
-        raise NotImplementedError("write your PageRank")
+        self.beta = beta
+        self.tol = tol
+        self.max_iter = max_iter
+        self.iterations = 0
+        self._memory_floats = 0
 
     def run(self, graph):
-        raise NotImplementedError
+        nodes = list(graph)
+        n = len(nodes)
+
+        if n == 0:
+            self.iterations = 0
+            self._memory_floats = 0
+            return {}
+
+        index = {v: i for i, v in enumerate(nodes)}
+
+        # Convert node names to integer indices once.
+        # This is still sparse: only real edges are stored.
+        adjacency = []
+        dangling = []
+
+        for v in nodes:
+            outs = graph[v]
+
+            if outs:
+                adjacency.append([index[w] for w in outs])
+            else:
+                adjacency.append([])
+                dangling.append(index[v])
+
+        # Current PageRank vector.
+        r = [1.0 / n] * n
+
+        # At most two n-element float vectors are held at once.
+        self._memory_floats = 2 * n
+
+        teleport = (1.0 - self.beta) / n
+
+        for step in range(1, self.max_iter + 1):
+            # Sum rank held by dead-end nodes.
+            dangling_rank = 0.0
+            for i in dangling:
+                dangling_rank += r[i]
+
+            # Every node gets the same teleport contribution and the same
+            # redistributed dead-end contribution. No dense matrix is needed.
+            base = teleport + self.beta * dangling_rank / n
+            nr = [base] * n
+
+            # Follow only edges that actually exist.
+            for src in range(n):
+                outs = adjacency[src]
+
+                if not outs:
+                    continue
+
+                share = self.beta * r[src] / len(outs)
+
+                for dst in outs:
+                    nr[dst] += share
+
+            # L1 convergence test.
+            delta = 0.0
+            for i in range(n):
+                delta += abs(nr[i] - r[i])
+
+            r = nr
+            self.iterations = step
+
+            if delta < self.tol:
+                break
+
+        return {
+            node: r[index[node]]
+            for node in nodes
+        }
 
     def memory_floats(self):
-        raise NotImplementedError
+        return self._memory_floats

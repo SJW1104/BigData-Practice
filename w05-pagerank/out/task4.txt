@@ -1,0 +1,7 @@
+﻿
+  50,000 nodes, 376,379 edges, built in 0.1s
+
+  single process       2.64s   peak     14.3 MB   top=147
+  spark            did not run: ModuleNotFoundError
+  Record it in observation.md - this task is optional for exactly this reason.
+
