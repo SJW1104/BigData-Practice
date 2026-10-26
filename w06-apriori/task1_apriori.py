@@ -30,7 +30,17 @@ BASKETS = [
 
 def frequent_singletons(baskets, support):
     """Items appearing in at least `support` baskets. Return {item: count}."""
-    raise NotImplementedError("pass one")
+    counts = {}
+
+    for basket in baskets:
+        for item in basket:
+            counts[item] = counts.get(item, 0) + 1
+
+    return {
+        item: count
+        for item, count in counts.items()
+        if count >= support
+    }
 
 
 def frequent_pairs(baskets, support):
@@ -44,7 +54,26 @@ def frequent_pairs(baskets, support):
     A-Priori exists to avoid, and it will pass this harness while failing the
     point. Task 3 measures whether you actually did it.
     """
-    raise NotImplementedError("pass two")
+    singles = frequent_singletons(baskets, support)
+    frequent_items = set(singles.keys())
+
+    pair_counts = {}
+
+    for basket in baskets:
+        filtered = sorted(
+            item for item in basket
+            if item in frequent_items
+        )
+
+        for a, b in combinations(filtered, 2):
+            pair = frozenset((a, b))
+            pair_counts[pair] = pair_counts.get(pair, 0) + 1
+
+    return {
+        pair: count
+        for pair, count in pair_counts.items()
+        if count >= support
+    }
 
 
 def association_rules(baskets, support, min_confidence):
@@ -60,7 +89,35 @@ def association_rules(baskets, support, min_confidence):
     rule with high confidence and lift near 1 tells you nothing - the consequent
     was common anyway - and §6.1.3 is about why that matters more than it looks.
     """
-    raise NotImplementedError("rules")
+    singles = frequent_singletons(baskets, support)
+    pairs = frequent_pairs(baskets, support)
+
+    n_baskets = len(baskets)
+    rules = []
+
+    for pair, pair_support in pairs.items():
+        i, j = tuple(pair)
+
+        # i -> j
+        confidence_ij = pair_support / singles[i]
+        lift_ij = confidence_ij / (singles[j] / n_baskets)
+
+        if confidence_ij >= min_confidence:
+            rules.append(
+                (i, j, confidence_ij, lift_ij)
+            )
+
+        # j -> i
+        confidence_ji = pair_support / singles[j]
+        lift_ji = confidence_ji / (singles[i] / n_baskets)
+
+        if confidence_ji >= min_confidence:
+            rules.append(
+                (j, i, confidence_ji, lift_ji)
+            )
+
+    rules.sort(key=lambda x: x[2], reverse=True)
+    return rules
 
 
 # ------------------------------------------------------------------- harness
@@ -77,34 +134,70 @@ def verify():
     try:
         singles = frequent_singletons(BASKETS, 3)
     except NotImplementedError:
-        print("  frequent_singletons is still a stub"); return 1
+        print("  frequent_singletons is still a stub")
+        return 1
+
     # counted by hand: bread 5, milk 5, diaper 5, beer 5, cola 2, egg 1
-    check("frequent singletons at support 3",
-          dict(sorted(singles.items())),
-          {"beer": 5, "bread": 5, "diaper": 5, "milk": 5})
+    check(
+        "frequent singletons at support 3",
+        dict(sorted(singles.items())),
+        {"beer": 5, "bread": 5, "diaper": 5, "milk": 5}
+    )
 
     try:
         pairs = frequent_pairs(BASKETS, 3)
     except NotImplementedError:
-        print("  frequent_pairs is still a stub"); return 1
+        print("  frequent_pairs is still a stub")
+        return 1
+
     got = {tuple(sorted(k)): v for k, v in pairs.items()}
-    check("frequent pairs at support 3", dict(sorted(got.items())),
-          {("beer", "bread"): 3, ("beer", "diaper"): 4, ("beer", "milk"): 3,
-           ("bread", "diaper"): 3, ("bread", "milk"): 4, ("diaper", "milk"): 3})
+
+    check(
+        "frequent pairs at support 3",
+        dict(sorted(got.items())),
+        {
+            ("beer", "bread"): 3,
+            ("beer", "diaper"): 4,
+            ("beer", "milk"): 3,
+            ("bread", "diaper"): 3,
+            ("bread", "milk"): 4,
+            ("diaper", "milk"): 3
+        }
+    )
 
     # cola appears twice, so it must never reach pass two
-    check("infrequent items excluded from pairs",
-          any("cola" in k or "egg" in k for k in got), False)
+    check(
+        "infrequent items excluded from pairs",
+        any("cola" in k or "egg" in k for k in got),
+        False
+    )
 
     try:
         rules = association_rules(BASKETS, 3, 0.75)
     except NotImplementedError:
-        print("  association_rules is still a stub"); return 1
+        print("  association_rules is still a stub")
+        return 1
+
     # diaper -> beer: support 4, diaper 5, confidence 0.8
-    hit = [r for r in rules if r[0] == "diaper" and r[1] == "beer"]
-    check("diaper -> beer confidence", round(hit[0][2], 3) if hit else None, 0.8)
-    check("rules are sorted by confidence",
-          all(rules[i][2] >= rules[i + 1][2] for i in range(len(rules) - 1)), True)
+    hit = [
+        r for r in rules
+        if r[0] == "diaper" and r[1] == "beer"
+    ]
+
+    check(
+        "diaper -> beer confidence",
+        round(hit[0][2], 3) if hit else None,
+        0.8
+    )
+
+    check(
+        "rules are sorted by confidence",
+        all(
+            rules[i][2] >= rules[i + 1][2]
+            for i in range(len(rules) - 1)
+        ),
+        True
+    )
 
     print(f"\n  {'all ok' if not fails else str(fails) + ' failed'}")
     return 1 if fails else 0

@@ -31,52 +31,133 @@ class PlainApriori:
 
     def run(self, baskets):
         counts = Counter()
+
         for basket in baskets:
             counts.update(basket)
-        frequent = {i for i, c in counts.items() if c >= self.support}
+
+        frequent = {
+            i for i, c in counts.items()
+            if c >= self.support
+        }
 
         pair_counts = Counter()
+
         for basket in baskets:
             items = sorted(basket & frequent)
+
             for pair in combinations(items, 2):
                 pair_counts[pair] += 1
-            self.peak_counters = max(self.peak_counters, len(pair_counts))
 
-        return {frozenset(p): c for p, c in pair_counts.items()
-                if c >= self.support}
+            self.peak_counters = max(
+                self.peak_counters,
+                len(pair_counts)
+            )
+
+        return {
+            frozenset(p): c
+            for p, c in pair_counts.items()
+            if c >= self.support
+        }
 
 
 class YourAlgorithm:
-    """Your frequent-pair finder.
+    """PCY frequent-pair finder.
 
-        __init__(support)
-        run(baskets) -> {frozenset({a, b}): count}
-        .peak_counters -> the most pair counters you ever held at once
+    Pass 1:
+      - count individual items
+      - hash every pair into a fixed bucket array
 
-    Same pairs as the baseline. Fewer counters.
+    After pass 1:
+      - determine frequent singleton items
+      - collapse bucket counts into a bitmap
 
-    Pass one only needs one integer per item, and there are not many items. The
-    rest of your memory is sitting idle while you do it. §6.3 spends it: hash
-    every pair you see in pass one into a fixed array of buckets, and count the
-    buckets rather than the pairs.
-
-    A bucket whose total is below the support threshold cannot contain a
-    frequent pair. In pass two you skip every pair landing in such a bucket -
-    and the bucket array collapses to a bitmap, one bit each, before you need
-    the memory for counters.
-
-    Two things to be careful of:
-
-      * a bucket being frequent does not make its pairs frequent. It is a
-        filter, not an answer
-      * `peak_counters` is on your honour. Count the pair counters you hold at
-        the same time. The bitmap is not a pair counter, but if you keep the
-        full bucket counts alive into pass two, that is not free either -
-        observation.md asks about it
+    Pass 2:
+      - only count a pair when both items are frequent
+      - and its PCY bucket is frequent
     """
 
     def __init__(self, support):
-        raise NotImplementedError("write your algorithm")
+        self.support = support
+        self.peak_counters = 0
+
+        # About one million buckets.
+        # Large enough to make the PCY bitmap selective on this dataset,
+        # while still being a fixed-size structure.
+        self.bucket_count = 1_000_003
+
+    def _bucket(self, pair):
+        """Map a pair to one PCY bucket."""
+        return hash(pair) % self.bucket_count
 
     def run(self, baskets):
-        raise NotImplementedError
+        # ------------------------------------------------------------
+        # PASS 1
+        # Count single items and hash every observed pair into buckets.
+        # ------------------------------------------------------------
+        item_counts = Counter()
+        bucket_counts = [0] * self.bucket_count
+
+        for basket in baskets:
+            item_counts.update(basket)
+
+            items = sorted(basket)
+
+            for pair in combinations(items, 2):
+                bucket = self._bucket(pair)
+                bucket_counts[bucket] += 1
+
+        # Frequent singletons from pass one
+        frequent_items = {
+            item
+            for item, count in item_counts.items()
+            if count >= self.support
+        }
+
+        # ------------------------------------------------------------
+        # Collapse bucket counts into a bitmap.
+        #
+        # A bucket below support cannot contain a frequent pair.
+        # bytearray uses one byte per bucket and lets us discard the
+        # much larger integer bucket-count array before pass two.
+        # ------------------------------------------------------------
+        bitmap = bytearray(self.bucket_count)
+
+        for i, count in enumerate(bucket_counts):
+            if count >= self.support:
+                bitmap[i] = 1
+
+        # Full bucket counts are no longer needed in pass two.
+        del bucket_counts
+
+        # ------------------------------------------------------------
+        # PASS 2
+        # Only count pairs that:
+        #   1. contain two frequent singleton items
+        #   2. hash to a frequent PCY bucket
+        # ------------------------------------------------------------
+        pair_counts = Counter()
+
+        for basket in baskets:
+            items = sorted(
+                item for item in basket
+                if item in frequent_items
+            )
+
+            for pair in combinations(items, 2):
+                bucket = self._bucket(pair)
+
+                if bitmap[bucket]:
+                    pair_counts[pair] += 1
+
+            self.peak_counters = max(
+                self.peak_counters,
+                len(pair_counts)
+            )
+
+        # A frequent bucket is only a candidate filter.
+        # We still need the real pair count to reach support.
+        return {
+            frozenset(pair): count
+            for pair, count in pair_counts.items()
+            if count >= self.support
+        }
